@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { getTokens } from "../services/token-store";
 import { ghlRequest } from "../services/ghl-client";
-import { davoxiRequest } from "../services/davoxi-client";
 
 const router = Router();
 
