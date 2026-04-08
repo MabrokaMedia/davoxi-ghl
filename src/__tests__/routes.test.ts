@@ -128,7 +128,7 @@ describe("routes", () => {
 
       expect(res.status).toBe(500);
       expect(res.body).toMatchObject({
-        error: "OAuth token exchange failed",
+        error: "Internal server error",
       });
     });
   });
