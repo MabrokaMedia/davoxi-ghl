@@ -6,12 +6,12 @@ import oauthRoutes from "./routes/oauth";
 import settingsRoutes from "./routes/settings";
 import webhookRoutes from "./routes/webhooks";
 import actionRoutes from "./routes/actions";
+import { apiKeyAuth } from "./middleware/apiKeyAuth";
 
 const app = express();
 
 app.use(helmet());
-app.use(cors());
-app.use(express.json());
+app.use(cors({ origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : false }));
 
 // Health check
 app.get("/health", (_req, res) => {
@@ -19,10 +19,10 @@ app.get("/health", (_req, res) => {
 });
 
 // Routes
-app.use("/oauth", oauthRoutes);
-app.use("/settings", settingsRoutes);
-app.use("/webhooks", webhookRoutes);
-app.use("/actions", actionRoutes);
+app.use("/oauth", express.json(), oauthRoutes);
+app.use("/settings", express.json(), apiKeyAuth, settingsRoutes);
+app.use("/webhooks", express.raw({ type: "application/json" }), webhookRoutes);
+app.use("/actions", express.json(), apiKeyAuth, actionRoutes);
 
 app.listen(config.port, () => {
   console.log(`Davoxi GHL integration running on port ${config.port}`);

@@ -1,19 +1,44 @@
 import { Router } from "express";
+import * as crypto from "crypto";
 import { config } from "../config";
 import { exchangeCodeForTokens } from "../services/ghl-client";
 import { saveTokens } from "../services/token-store";
 
 const router = Router();
 
+const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+interface StateEntry {
+  expiresAt: number;
+}
+
+const pendingStates = new Map<string, StateEntry>();
+
+function generateState(): string {
+  const state = crypto.randomBytes(16).toString("hex");
+  pendingStates.set(state, { expiresAt: Date.now() + STATE_TTL_MS });
+  return state;
+}
+
+function consumeState(state: string): boolean {
+  const entry = pendingStates.get(state);
+  if (!entry) return false;
+  pendingStates.delete(state);
+  if (Date.now() > entry.expiresAt) return false;
+  return true;
+}
+
 /**
  * GET /oauth/authorize — Redirect user to GHL OAuth consent screen.
  */
 router.get("/authorize", (_req, res) => {
+  const state = generateState();
   const params = new URLSearchParams({
     response_type: "code",
     client_id: config.ghl.clientId,
     redirect_uri: `${config.appUrl}/oauth/callback`,
     scope: config.ghl.scopes.join(" "),
+    state,
   });
   res.redirect(`${config.ghl.oauthUrl}?${params}`);
 });
@@ -23,8 +48,15 @@ router.get("/authorize", (_req, res) => {
  */
 router.get("/callback", async (req, res) => {
   const code = req.query.code as string | undefined;
+  const state = req.query.state as string | undefined;
+
   if (!code) {
     res.status(400).json({ error: "Missing authorization code" });
+    return;
+  }
+
+  if (!state || !consumeState(state)) {
+    res.status(400).json({ error: "Invalid or expired state parameter" });
     return;
   }
 
@@ -44,9 +76,10 @@ router.get("/callback", async (req, res) => {
       message: "Davoxi connected to GoHighLevel. Configure your Davoxi API key at /settings.",
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: "OAuth token exchange failed", details: message });
+    console.error("OAuth token exchange failed:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
+export { generateState, consumeState };
 export default router;
