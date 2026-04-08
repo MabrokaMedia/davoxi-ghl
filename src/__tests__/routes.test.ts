@@ -1,5 +1,6 @@
 import express from "express";
 import type { Express } from "express";
+import { generateState } from "../routes/oauth";
 
 // Mock external dependencies before importing routes
 jest.mock("node-fetch", () => ({
@@ -99,7 +100,8 @@ describe("routes", () => {
         locationId: "loc-1",
       });
 
-      const res = await request(app, "GET", "/oauth/callback?code=test-code");
+      const state = generateState();
+      const res = await request(app, "GET", `/oauth/callback?code=test-code&state=${state}`);
 
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({
@@ -109,12 +111,20 @@ describe("routes", () => {
       expect(tokenStore.getTokens("loc-1")).toBeDefined();
     });
 
+    it("GET /oauth/callback should return 400 when state is missing", async () => {
+      const res = await request(app, "GET", "/oauth/callback?code=test-code");
+
+      expect(res.status).toBe(400);
+      expect(res.body).toMatchObject({ error: "Invalid or expired state parameter" });
+    });
+
     it("GET /oauth/callback should return 500 when token exchange fails", async () => {
       jest
         .spyOn(ghlClient, "exchangeCodeForTokens")
         .mockRejectedValue(new Error("exchange failed"));
 
-      const res = await request(app, "GET", "/oauth/callback?code=bad-code");
+      const state = generateState();
+      const res = await request(app, "GET", `/oauth/callback?code=bad-code&state=${state}`);
 
       expect(res.status).toBe(500);
       expect(res.body).toMatchObject({
