@@ -12,15 +12,27 @@ interface StateEntry {
   expiresAt: number;
 }
 
-const pendingStates = new Map<string, StateEntry>();
+export const _pendingStates = new Map<string, StateEntry>();
+const pendingStates = _pendingStates;
 
-function generateState(): string {
+// Periodically purge expired state entries to prevent unbounded memory growth
+const _stateCleanup = setInterval(() => {
+  const now = Date.now();
+  for (const [state, entry] of pendingStates) {
+    if (now > entry.expiresAt) pendingStates.delete(state);
+  }
+}, STATE_TTL_MS);
+
+// Allow the process to exit cleanly without waiting for the interval
+if (typeof _stateCleanup.unref === "function") _stateCleanup.unref();
+
+export function generateState(): string {
   const state = crypto.randomBytes(16).toString("hex");
   pendingStates.set(state, { expiresAt: Date.now() + STATE_TTL_MS });
   return state;
 }
 
-function consumeState(state: string): boolean {
+export function consumeState(state: string): boolean {
   const entry = pendingStates.get(state);
   if (!entry) return false;
   pendingStates.delete(state);
@@ -81,5 +93,4 @@ router.get("/callback", async (req, res) => {
   }
 });
 
-export { generateState, consumeState };
 export default router;

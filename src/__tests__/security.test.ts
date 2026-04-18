@@ -59,6 +59,21 @@ describe("apiKeyAuth middleware", () => {
     expect(res.status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
   });
+
+  it("returns 401 (not 500) when provided key is shorter than expected — timing-safe path", () => {
+    // timingSafeEqual throws on different buffer lengths; the catch must return 401 not 500
+    const { req, res, next } = makeReqResNext({ "x-api-key": "x" });
+    apiKeyAuth(req as Request, res as unknown as Response, next as NextFunction);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("returns 401 (not 500) when provided key is longer than expected — timing-safe path", () => {
+    const { req, res, next } = makeReqResNext({ "x-api-key": "secret-key-123-with-extra-chars" });
+    apiKeyAuth(req as Request, res as unknown as Response, next as NextFunction);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

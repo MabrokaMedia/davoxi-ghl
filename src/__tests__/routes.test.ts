@@ -1,6 +1,6 @@
 import express from "express";
 import type { Express } from "express";
-import { generateState } from "../routes/oauth";
+import { generateState, consumeState, _pendingStates } from "../routes/oauth";
 
 // Mock external dependencies before importing routes
 jest.mock("node-fetch", () => ({
@@ -271,6 +271,56 @@ describe("routes", () => {
 
       const record = tokenStore.getTokens("loc-1");
       expect(record?.davoxiApiKey).toBe("valid-key");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // State map — DoS / memory-growth guard
+  // ---------------------------------------------------------------------------
+  describe("OAuth state map", () => {
+    afterEach(() => {
+      _pendingStates.clear();
+    });
+
+    it("generateState adds an entry to the pending-states map", () => {
+      const before = _pendingStates.size;
+      generateState();
+      expect(_pendingStates.size).toBe(before + 1);
+    });
+
+    it("consumeState removes the entry from the map (one-time use)", () => {
+      const state = generateState();
+      expect(_pendingStates.has(state)).toBe(true);
+      consumeState(state);
+      expect(_pendingStates.has(state)).toBe(false);
+    });
+
+    it("consumeState returns false for an already-consumed state", () => {
+      const state = generateState();
+      expect(consumeState(state)).toBe(true);
+      expect(consumeState(state)).toBe(false);
+    });
+
+    it("consumeState returns false for an expired state entry", () => {
+      const state = generateState();
+      // Wind the expiry into the past
+      _pendingStates.set(state, { expiresAt: Date.now() - 1 });
+      expect(consumeState(state)).toBe(false);
+      // Entry must be removed regardless
+      expect(_pendingStates.has(state)).toBe(false);
+    });
+
+    it("expired entries are purged without growing the map unboundedly", () => {
+      // Insert 5 states and manually expire them
+      for (let i = 0; i < 5; i++) {
+        const s = generateState();
+        _pendingStates.set(s, { expiresAt: Date.now() - 1 });
+      }
+      // consumeState on each expired entry removes it
+      for (const [s] of [..._pendingStates]) {
+        consumeState(s);
+      }
+      expect(_pendingStates.size).toBe(0);
     });
   });
 });
