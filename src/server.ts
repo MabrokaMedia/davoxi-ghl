@@ -19,10 +19,10 @@ app.get("/health", (_req, res) => {
 });
 
 // Routes
-app.use("/oauth", express.json(), oauthRoutes);
-app.use("/settings", express.json(), apiKeyAuth, settingsRoutes);
-app.use("/webhooks", express.raw({ type: "application/json" }), webhookRoutes);
-app.use("/actions", express.json(), apiKeyAuth, actionRoutes);
+app.use("/oauth", express.json({ limit: "16kb" }), oauthRoutes);
+app.use("/settings", express.json({ limit: "16kb" }), apiKeyAuth, settingsRoutes);
+app.use("/webhooks", express.raw({ type: "application/json", limit: "16kb" }), webhookRoutes);
+app.use("/actions", express.json({ limit: "16kb" }), apiKeyAuth, actionRoutes);
 
 app.listen(config.port, () => {
   console.log(`Davoxi GHL integration running on port ${config.port}`);
