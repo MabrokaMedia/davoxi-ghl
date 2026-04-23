@@ -1,5 +1,6 @@
 import express from "express";
 import type { Express } from "express";
+import { generateState, consumeState, _pendingStates } from "../routes/oauth";
 
 // Mock external dependencies before importing routes
 jest.mock("node-fetch", () => ({
@@ -99,7 +100,8 @@ describe("routes", () => {
         locationId: "loc-1",
       });
 
-      const res = await request(app, "GET", "/oauth/callback?code=test-code");
+      const state = generateState();
+      const res = await request(app, "GET", `/oauth/callback?code=test-code&state=${state}`);
 
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({
@@ -109,16 +111,24 @@ describe("routes", () => {
       expect(tokenStore.getTokens("loc-1")).toBeDefined();
     });
 
+    it("GET /oauth/callback should return 400 when state is missing", async () => {
+      const res = await request(app, "GET", "/oauth/callback?code=test-code");
+
+      expect(res.status).toBe(400);
+      expect(res.body).toMatchObject({ error: "Invalid or expired state parameter" });
+    });
+
     it("GET /oauth/callback should return 500 when token exchange fails", async () => {
       jest
         .spyOn(ghlClient, "exchangeCodeForTokens")
         .mockRejectedValue(new Error("exchange failed"));
 
-      const res = await request(app, "GET", "/oauth/callback?code=bad-code");
+      const state = generateState();
+      const res = await request(app, "GET", `/oauth/callback?code=bad-code&state=${state}`);
 
       expect(res.status).toBe(500);
       expect(res.body).toMatchObject({
-        error: "OAuth token exchange failed",
+        error: "Internal server error",
       });
     });
   });
@@ -261,6 +271,56 @@ describe("routes", () => {
 
       const record = tokenStore.getTokens("loc-1");
       expect(record?.davoxiApiKey).toBe("valid-key");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // State map — DoS / memory-growth guard
+  // ---------------------------------------------------------------------------
+  describe("OAuth state map", () => {
+    afterEach(() => {
+      _pendingStates.clear();
+    });
+
+    it("generateState adds an entry to the pending-states map", () => {
+      const before = _pendingStates.size;
+      generateState();
+      expect(_pendingStates.size).toBe(before + 1);
+    });
+
+    it("consumeState removes the entry from the map (one-time use)", () => {
+      const state = generateState();
+      expect(_pendingStates.has(state)).toBe(true);
+      consumeState(state);
+      expect(_pendingStates.has(state)).toBe(false);
+    });
+
+    it("consumeState returns false for an already-consumed state", () => {
+      const state = generateState();
+      expect(consumeState(state)).toBe(true);
+      expect(consumeState(state)).toBe(false);
+    });
+
+    it("consumeState returns false for an expired state entry", () => {
+      const state = generateState();
+      // Wind the expiry into the past
+      _pendingStates.set(state, { expiresAt: Date.now() - 1 });
+      expect(consumeState(state)).toBe(false);
+      // Entry must be removed regardless
+      expect(_pendingStates.has(state)).toBe(false);
+    });
+
+    it("expired entries are purged without growing the map unboundedly", () => {
+      // Insert 5 states and manually expire them
+      for (let i = 0; i < 5; i++) {
+        const s = generateState();
+        _pendingStates.set(s, { expiresAt: Date.now() - 1 });
+      }
+      // consumeState on each expired entry removes it
+      for (const [s] of [..._pendingStates]) {
+        consumeState(s);
+      }
+      expect(_pendingStates.size).toBe(0);
     });
   });
 });

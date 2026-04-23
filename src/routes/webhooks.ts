@@ -1,8 +1,11 @@
-import { Router } from "express";
+import { Router, Request } from "express";
+import * as crypto from "crypto";
 import { getTokens } from "../services/token-store";
 import { ghlRequest } from "../services/ghl-client";
 
 const router = Router();
+
+const LOCATION_ID_RE = /^[a-zA-Z0-9_-]{8,64}$/;
 
 interface GHLContact {
   id: string;
@@ -22,6 +25,40 @@ interface GHLWebhookPayload {
   [key: string]: unknown;
 }
 
+function verifyGhlSignature(req: Request): boolean {
+  const secret = process.env.GHL_WEBHOOK_SECRET;
+  if (!secret) return false;
+  const signature = req.headers["x-ghl-signature"] as string | undefined;
+  if (!signature) return false;
+  const rawBody = req.body as Buffer;
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(rawBody)
+    .digest("hex");
+  try {
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  } catch {
+    return false;
+  }
+}
+
+function verifyDavoxiSignature(req: Request): boolean {
+  const secret = process.env.DAVOXI_WEBHOOK_SECRET;
+  if (!secret) return false;
+  const signature = req.headers["x-davoxi-signature"] as string | undefined;
+  if (!signature) return false;
+  const rawBody = req.body as Buffer;
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(rawBody)
+    .digest("hex");
+  try {
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * POST /webhooks/ghl — Handle incoming GHL webhook events.
  *
@@ -29,9 +66,20 @@ interface GHLWebhookPayload {
  *   - ContactCreate: Sync new GHL contacts to Davoxi
  *   - InboundMessage: Log conversations from GHL into Davoxi
  */
-router.post("/ghl", async (req, res) => {
-  const payload = req.body as GHLWebhookPayload;
+router.post("/ghl", (req, res, next) => {
+  if (!verifyGhlSignature(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  next();
+}, async (req, res) => {
+  const payload = JSON.parse((req.body as Buffer).toString()) as GHLWebhookPayload;
   const { type, locationId } = payload;
+
+  if (!LOCATION_ID_RE.test(locationId ?? "")) {
+    res.status(400).json({ error: "Invalid locationId" });
+    return;
+  }
 
   // Acknowledge immediately
   res.status(200).json({ received: true });
@@ -51,7 +99,7 @@ router.post("/ghl", async (req, res) => {
           "GET",
           `/contacts/${payload.contactId}`,
         );
-        console.log(`New GHL contact synced: ${contact.firstName} ${contact.lastName} (${contact.phone})`);
+        console.log(`New GHL contact synced: contactId=${contact.id}`);
         // Future: create matching contact/lead in Davoxi CRM when available
         break;
       }
@@ -76,8 +124,14 @@ router.post("/ghl", async (req, res) => {
  * Events:
  *   - call.completed: Log call summary back to GHL contact timeline
  */
-router.post("/davoxi", async (req, res) => {
-  const payload = req.body as {
+router.post("/davoxi", (req, res, next) => {
+  if (!verifyDavoxiSignature(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  next();
+}, async (req, res) => {
+  const payload = JSON.parse((req.body as Buffer).toString()) as {
     event: string;
     locationId?: string;
     contactPhone?: string;
@@ -90,6 +144,11 @@ router.post("/davoxi", async (req, res) => {
 
   const locationId = payload.locationId;
   if (!locationId) return;
+
+  if (!LOCATION_ID_RE.test(locationId)) {
+    console.error(`Invalid locationId in Davoxi webhook: ${locationId}`);
+    return;
+  }
 
   const record = getTokens(locationId);
   if (!record) return;
@@ -127,4 +186,5 @@ router.post("/davoxi", async (req, res) => {
   }
 });
 
+export { verifyGhlSignature, verifyDavoxiSignature, LOCATION_ID_RE };
 export default router;
