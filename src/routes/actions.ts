@@ -5,6 +5,9 @@ import { config } from "../config";
 
 const router = Router();
 
+const LOCATION_ID_RE = /^[a-zA-Z0-9_-]{4,64}$/;
+const BUSINESS_ID_RE = /^[a-zA-Z0-9_-]{4,64}$/;
+
 /**
  * GET /actions/businesses — List Davoxi businesses for a GHL location.
  * Used by GHL custom workflow actions to populate dropdowns.
@@ -13,6 +16,10 @@ router.get("/businesses", async (req, res) => {
   const locationId = req.query.locationId as string;
   if (!locationId) {
     res.status(400).json({ error: "locationId is required" });
+    return;
+  }
+  if (!LOCATION_ID_RE.test(locationId)) {
+    res.status(400).json({ error: "Invalid locationId format" });
     return;
   }
 
@@ -43,6 +50,14 @@ router.get("/agents", async (req, res) => {
     res.status(400).json({ error: "locationId and businessId are required" });
     return;
   }
+  if (!LOCATION_ID_RE.test(locationId)) {
+    res.status(400).json({ error: "Invalid locationId format" });
+    return;
+  }
+  if (!BUSINESS_ID_RE.test(businessId)) {
+    res.status(400).json({ error: "Invalid businessId format" });
+    return;
+  }
 
   const record = getTokens(locationId);
   if (!record?.davoxiApiKey) {
@@ -67,6 +82,10 @@ router.get("/usage", async (req, res) => {
   const locationId = req.query.locationId as string;
   if (!locationId) {
     res.status(400).json({ error: "locationId is required" });
+    return;
+  }
+  if (!LOCATION_ID_RE.test(locationId)) {
+    res.status(400).json({ error: "Invalid locationId format" });
     return;
   }
 
