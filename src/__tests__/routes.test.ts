@@ -147,6 +147,19 @@ describe("routes", () => {
       expect(res.body).toMatchObject({ error: "locationId is required" });
     });
 
+    it("GET /actions/businesses with invalid locationId format should return 400", async () => {
+      const res = await request(app, "GET", "/actions/businesses?locationId=../etc/passwd");
+      expect(res.status).toBe(400);
+      expect(res.body).toMatchObject({ error: "Invalid locationId format" });
+    });
+
+    it("GET /actions/businesses with excessively long locationId should return 400", async () => {
+      const longId = "a".repeat(65);
+      const res = await request(app, "GET", `/actions/businesses?locationId=${longId}`);
+      expect(res.status).toBe(400);
+      expect(res.body).toMatchObject({ error: "Invalid locationId format" });
+    });
+
     it("GET /actions/businesses without API key should return 404", async () => {
       tokenStore.saveTokens({
         locationId: "loc-1",
@@ -181,6 +194,12 @@ describe("routes", () => {
     it("GET /actions/agents without required params should return 400", async () => {
       const res = await request(app, "GET", "/actions/agents?locationId=loc-1");
       expect(res.status).toBe(400);
+    });
+
+    it("GET /actions/agents with invalid businessId format should return 400", async () => {
+      const res = await request(app, "GET", "/actions/agents?locationId=loc-1&businessId=../../etc");
+      expect(res.status).toBe(400);
+      expect(res.body).toMatchObject({ error: "Invalid businessId format" });
     });
 
     it("GET /actions/usage without locationId should return 400", async () => {
