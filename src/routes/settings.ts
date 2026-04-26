@@ -5,6 +5,8 @@ import { config } from "../config";
 
 const router = Router();
 
+const LOCATION_ID_RE = /^[a-zA-Z0-9_-]{4,64}$/;
+
 /**
  * POST /settings/api-key — Save the user's Davoxi API key for a location.
  */
@@ -13,6 +15,10 @@ router.post("/api-key", async (req, res) => {
 
   if (!locationId || !apiKey) {
     res.status(400).json({ error: "locationId and apiKey are required" });
+    return;
+  }
+  if (!LOCATION_ID_RE.test(locationId)) {
+    res.status(400).json({ error: "Invalid locationId format" });
     return;
   }
 

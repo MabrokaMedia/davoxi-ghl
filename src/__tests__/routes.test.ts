@@ -241,6 +241,15 @@ describe("routes", () => {
       expect(res.body).toMatchObject({ error: "locationId and apiKey are required" });
     });
 
+    it("POST /settings/api-key with invalid locationId format should return 400", async () => {
+      const res = await request(app, "POST", "/settings/api-key", {
+        locationId: "../etc/passwd",
+        apiKey: "some-key",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body).toMatchObject({ error: "Invalid locationId format" });
+    });
+
     it("POST /settings/api-key for unconnected location should return 404", async () => {
       const res = await request(app, "POST", "/settings/api-key", {
         locationId: "unknown",
