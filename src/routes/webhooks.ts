@@ -25,6 +25,21 @@ interface GHLWebhookPayload {
   [key: string]: unknown;
 }
 
+const HEX_RE = /^[0-9a-fA-F]+$/;
+
+function timingSafeHexEqual(actual: string, expected: string): boolean {
+  if (!HEX_RE.test(actual) || !HEX_RE.test(expected)) return false;
+  if (actual.length !== expected.length) return false;
+  try {
+    const a = Buffer.from(actual, "hex");
+    const b = Buffer.from(expected, "hex");
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
 function verifyGhlSignature(req: Request): boolean {
   const secret = process.env.GHL_WEBHOOK_SECRET;
   if (!secret) return false;
@@ -35,11 +50,7 @@ function verifyGhlSignature(req: Request): boolean {
     .createHmac("sha256", secret)
     .update(rawBody)
     .digest("hex");
-  try {
-    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-  } catch {
-    return false;
-  }
+  return timingSafeHexEqual(signature, expected);
 }
 
 function verifyDavoxiSignature(req: Request): boolean {
@@ -52,10 +63,14 @@ function verifyDavoxiSignature(req: Request): boolean {
     .createHmac("sha256", secret)
     .update(rawBody)
     .digest("hex");
+  return timingSafeHexEqual(signature, expected);
+}
+
+function safeParseJson<T>(buf: Buffer): T | null {
   try {
-    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    return JSON.parse(buf.toString()) as T;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -73,7 +88,11 @@ router.post("/ghl", (req, res, next) => {
   }
   next();
 }, async (req, res) => {
-  const payload = JSON.parse((req.body as Buffer).toString()) as GHLWebhookPayload;
+  const payload = safeParseJson<GHLWebhookPayload>(req.body as Buffer);
+  if (!payload) {
+    res.status(400).json({ error: "Invalid JSON body" });
+    return;
+  }
   const { type, locationId } = payload;
 
   if (!LOCATION_ID_RE.test(locationId ?? "")) {
@@ -131,14 +150,18 @@ router.post("/davoxi", (req, res, next) => {
   }
   next();
 }, async (req, res) => {
-  const payload = JSON.parse((req.body as Buffer).toString()) as {
+  const payload = safeParseJson<{
     event: string;
     locationId?: string;
     contactPhone?: string;
     summary?: string;
     duration?: number;
     [key: string]: unknown;
-  };
+  }>(req.body as Buffer);
+  if (!payload) {
+    res.status(400).json({ error: "Invalid JSON body" });
+    return;
+  }
 
   res.status(200).json({ received: true });
 
